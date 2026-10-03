@@ -2,7 +2,7 @@ export type EnvValue = string | undefined;
 
 /* Common options supported by every environment schema entry */
 export interface SharedSchemaOptions<TDefault> {
-    /* Whether the variable must be present. Defaults to `true` when omitted */
+    /* Whether the variable must be present, defaults to `true` when omitted */
     readonly required?: boolean;
     /* Value to use when the variable is missing. Cannot be combined with `required: true` */
     readonly default?: TDefault;
@@ -10,7 +10,7 @@ export interface SharedSchemaOptions<TDefault> {
     readonly description?: string;
 }
 
-/* Schema for a string value. Input is validated as-is; whitespace is not trimmed */
+/* Schema for a string value, input is validated as-is and whitespace is not trimmed */
 export interface StringSchema extends SharedSchemaOptions<string> {
     readonly type: "string";
     /* Inclusive minimum string length */
@@ -30,12 +30,12 @@ export interface NumberSchema extends SharedSchemaOptions<number> {
     readonly max?: number;
 }
 
-/* Schema for a boolean value. Only the strings "true" and "false" are accepted */
+/* Schema for a boolean value, only the strings "true" and "false" are accepted */
 export interface BooleanSchema extends SharedSchemaOptions<boolean> {
     readonly type: "boolean";
 }
 
-/* Schema for an absolute URL. Validation checks syntax and optionally protocol */
+/* Schema for an absolute URL, with optional protocol checks */
 export interface UrlSchema extends SharedSchemaOptions<string> {
     readonly type: "url";
     /* Allowed URL protocols, including their trailing colon such as "https:" */
@@ -79,10 +79,10 @@ type HasDefault<S extends EnvSchemaEntry> = "default" extends keyof S ? true : f
 type IsRequired<S extends EnvSchemaEntry> = S extends { readonly required: true } ? true : false;
 
 /**
- * The inferred property type for one schema entry.
+ * The inferred property type for one schema entry
  *
- * Entries with a default or `required: true` are non-optional. Entries with
- * `required: false` or no explicit required setting include `undefined`.
+ * Entries with a default or `required: true` are non-optional while other
+ * entries include `undefined`
  */
 export type InferEntryProperty<S extends EnvSchemaEntry> =
     HasDefault<S> extends true ? InferEntry<S> : IsRequired<S> extends true ? InferEntry<S> : InferEntry<S> | undefined;
@@ -92,7 +92,7 @@ export type InferSchema<S extends EnvSchema> = {
     readonly [K in keyof S]: InferEntryProperty<S[K]>;
 };
 
-/* Stable codes identifying the reason an environment value failed validation */
+/* Stable codes identifying why an environment value failed validation */
 export type EnvIssueCode =
     | "MISSING"
     | "EMPTY"
@@ -117,7 +117,7 @@ export interface EnvIssue {
     readonly description?: string;
 }
 
-/** Result returned by {@link safeEnvGuard}. */
+/** Result returned by {@link safeEnvGuard} */
 export type SafeResult<T> =
     | { readonly ok: true; readonly data: T }
     | { readonly ok: false; readonly error: import("./errors.js").EnvGuardError };
