@@ -14,21 +14,27 @@ export interface NormalizedEntry {
     readonly schema: EnvSchemaEntry;
 }
 
+// Validate every entry and keep its key beside the schema for later processing
 export function validateAndNormalizeSchema(schema: unknown): readonly NormalizedEntry[] {
     if (!isPlainRecord(schema)) throw new TypeError("@shubhajit-paul-web/envguard: schema must be an object.");
 
     const entries: NormalizedEntry[] = [];
-    // Preserve insertion order so aggregated schema and environment issues stay deterministic
+
+    // Preserve insertion order so aggregated issues stay deterministic
     for (const key of Object.keys(schema)) {
         const entry = schema[key];
         validateEntry(key, entry);
         entries.push({ key, schema: entry as EnvSchemaEntry });
     }
+
     return entries;
 }
 
 function validateEntry(key: string, entry: unknown): asserts entry is EnvSchemaEntry {
-    if (!isPlainRecord(entry)) throw schemaError(key, "schema entry must be an object.");
+    if (!isPlainRecord(entry)) {
+        throw schemaError(key, "schema entry must be an object.");
+    }
+
     if (typeof entry.type !== "string" || !(entry.type in TYPE_KEYS)) {
         throw schemaError(key, "type must be one of: string, number, boolean, url, enum.");
     }
@@ -39,18 +45,30 @@ function validateEntry(key: string, entry: unknown): asserts entry is EnvSchemaE
         }
     }
 
-    if ("required" in entry && typeof entry.required !== "boolean")
+    if ("required" in entry && typeof entry.required !== "boolean") {
         throw schemaError(key, "required must be a boolean.");
-    if ("description" in entry && typeof entry.description !== "string")
+    }
+
+    if ("description" in entry && typeof entry.description !== "string") {
         throw schemaError(key, "description must be a string.");
-    if ("default" in entry && entry.default === undefined)
+    }
+
+    if ("default" in entry && entry.default === undefined) {
         throw schemaError(key, "default must be defined when provided.");
+    }
+
     const typedEntry = entry as unknown as EnvSchemaEntry;
-    if ("default" in typedEntry && !matchesDefault(typedEntry))
+    if ("default" in typedEntry && !matchesDefault(typedEntry)) {
         throw schemaError(key, "default has the wrong type for the declared schema type.");
-    if ("default" in typedEntry) validateDefaultConstraints(key, typedEntry);
-    if (typedEntry.required === true && "default" in typedEntry)
+    }
+
+    if ("default" in typedEntry) {
+        validateDefaultConstraints(key, typedEntry);
+    }
+
+    if (typedEntry.required === true && "default" in typedEntry) {
         throw schemaError(key, "required and default cannot be used together.");
+    }
 
     switch (typedEntry.type) {
         case "string":
@@ -70,23 +88,41 @@ function validateEntry(key: string, entry: unknown): asserts entry is EnvSchemaE
     }
 }
 
+// Check options that only apply to string entries
 function validateStringSchema(key: string, entry: Extract<EnvSchemaEntry, { type: "string" }>): void {
-    if ("minLength" in entry && (!Number.isInteger(entry.minLength) || entry.minLength! < 0))
+    if ("minLength" in entry && (!Number.isInteger(entry.minLength) || entry.minLength! < 0)) {
         throw schemaError(key, "minLength must be a non-negative integer.");
-    if ("maxLength" in entry && (!Number.isInteger(entry.maxLength) || entry.maxLength! < 0))
+    }
+
+    if ("maxLength" in entry && (!Number.isInteger(entry.maxLength) || entry.maxLength! < 0)) {
         throw schemaError(key, "maxLength must be a non-negative integer.");
-    if (entry.minLength !== undefined && entry.maxLength !== undefined && entry.minLength > entry.maxLength)
+    }
+
+    if (entry.minLength !== undefined && entry.maxLength !== undefined && entry.minLength > entry.maxLength) {
         throw schemaError(key, "minLength cannot be greater than maxLength.");
-    if ("pattern" in entry && !(entry.pattern instanceof RegExp)) throw schemaError(key, "pattern must be a RegExp.");
+    }
+
+    if ("pattern" in entry && !(entry.pattern instanceof RegExp)) {
+        throw schemaError(key, "pattern must be a RegExp.");
+    }
 }
 
+// Check options that only apply to number entries
 function validateNumberSchema(key: string, entry: Extract<EnvSchemaEntry, { type: "number" }>): void {
-    if ("min" in entry && !Number.isFinite(entry.min)) throw schemaError(key, "min must be a finite number.");
-    if ("max" in entry && !Number.isFinite(entry.max)) throw schemaError(key, "max must be a finite number.");
-    if (entry.min !== undefined && entry.max !== undefined && entry.min > entry.max)
+    if ("min" in entry && !Number.isFinite(entry.min)) {
+        throw schemaError(key, "min must be a finite number.");
+    }
+
+    if ("max" in entry && !Number.isFinite(entry.max)) {
+        throw schemaError(key, "max must be a finite number.");
+    }
+
+    if (entry.min !== undefined && entry.max !== undefined && entry.min > entry.max) {
         throw schemaError(key, "min cannot be greater than max.");
+    }
 }
 
+// Protocol names are kept as supplied, including the trailing colon
 function validateUrlSchema(key: string, entry: Extract<EnvSchemaEntry, { type: "url" }>): void {
     if ("protocols" in entry) {
         if (
@@ -96,20 +132,28 @@ function validateUrlSchema(key: string, entry: Extract<EnvSchemaEntry, { type: "
         ) {
             throw schemaError(key, "protocols must be a non-empty array of strings.");
         }
-        if (new Set(entry.protocols).size !== entry.protocols.length)
+        if (new Set(entry.protocols).size !== entry.protocols.length) {
             throw schemaError(key, "protocols must contain unique values.");
+        }
     }
 }
 
+// Enum values must be unique so the inferred type and runtime choices agree
 function validateEnumSchema(key: string, entry: EnumSchema): void {
-    if (!Array.isArray(entry.values) || entry.values.length === 0)
+    if (!Array.isArray(entry.values) || entry.values.length === 0) {
         throw schemaError(key, "values must contain at least one item.");
-    if (entry.values.some((value) => typeof value !== "string"))
+    }
+
+    if (entry.values.some((value) => typeof value !== "string")) {
         throw schemaError(key, "values must contain only strings.");
-    if (new Set(entry.values).size !== entry.values.length)
+    }
+
+    if (new Set(entry.values).size !== entry.values.length) {
         throw schemaError(key, "values must contain unique strings.");
+    }
 }
 
+// Validate defaults early so an invalid fallback cannot hide until runtime
 function validateDefaultConstraints(key: string, entry: EnvSchemaEntry): void {
     if (!("default" in entry) || entry.default === undefined) return;
     switch (entry.type) {
@@ -152,6 +196,7 @@ function validateDefaultConstraints(key: string, entry: EnvSchemaEntry): void {
     }
 }
 
+// Check the default type separately from its range or pattern constraints
 function matchesDefault(entry: EnvSchemaEntry): boolean {
     if (!("default" in entry)) return true;
     const value = entry.default;

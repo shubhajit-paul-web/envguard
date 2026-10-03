@@ -6,6 +6,10 @@ import type { EnvGuardOptions, EnvIssue, EnvSchema, InferSchema } from "./types.
 export type ValidationResult<T> =
     { readonly ok: true; readonly data: T } | { readonly ok: false; readonly error: EnvGuardError };
 
+type EntryResult =
+    { readonly kind: "value"; readonly value: unknown } | { readonly kind: "issue"; readonly issue: EnvIssue };
+
+// Throw only for validation issues while leaving malformed schemas as TypeErrors
 export function validate<S extends EnvSchema>(schema: S, options: EnvGuardOptions = {}): InferSchema<S> {
     const result = validateSafe(schema, options);
     if (!result.ok) throw result.error;
@@ -21,6 +25,7 @@ export function validateSafe<S extends EnvSchema>(
     const output: Record<string, unknown> = {};
     const issues: EnvIssue[] = [];
 
+    // Continue after each failure so callers receive one complete error report
     for (const { key, schema: entry } of entries) {
         const resolved = readAndValidateEntry(sourceRecord, key, entry);
         if (resolved.kind === "issue") {
@@ -36,7 +41,10 @@ export function validateSafe<S extends EnvSchema>(
         });
     }
 
-    if (issues.length > 0) return { ok: false, error: new EnvGuardError(issues) };
+    if (issues.length > 0) {
+        return { ok: false, error: new EnvGuardError(issues) };
+    }
+
     return { ok: true, data: Object.freeze(output) as InferSchema<S> };
 }
 
@@ -48,17 +56,23 @@ function resolveSource(options: EnvGuardOptions): Record<string, string | undefi
     return source as Record<string, string | undefined>;
 }
 
+// Resolve one value, parse it, then apply type-specific constraints
 function readAndValidateEntry(
     source: Record<string, string | undefined>,
     key: string,
     entry: NormalizedEntry["schema"],
-): { readonly kind: "value"; readonly value: unknown } | { readonly kind: "issue"; readonly issue: EnvIssue } {
+): EntryResult {
     const supplied = Object.hasOwn(source, key) ? source[key] : undefined;
 
     if (supplied === undefined) {
-        if ("default" in entry) return { kind: "value", value: entry.default };
-        if (isRequired(entry))
+        if ("default" in entry) {
+            return { kind: "value", value: entry.default };
+        }
+
+        if (isRequired(entry)) {
             return issue(key, "MISSING", "Required environment variable is missing.", entry.description);
+        }
+
         return { kind: "value", value: undefined };
     }
 
@@ -87,6 +101,7 @@ function isRequired(entry: NormalizedEntry["schema"]): boolean {
     return entry.required === true || !("required" in entry);
 }
 
+// Attach the schema description without exposing the raw environment value
 function issue(
     key: string,
     code: EnvIssue["code"],
@@ -94,20 +109,28 @@ function issue(
     description: string | undefined,
 ): { readonly kind: "issue"; readonly issue: EnvIssue } {
     const issueData: EnvIssue = { key, code, message };
-    if (description !== undefined) return { kind: "issue", issue: { ...issueData, description } };
+
+    if (description !== undefined) {
+        return { kind: "issue", issue: { ...issueData, description } };
+    }
+
     return { kind: "issue", issue: issueData };
 }
 
 function validateSource(source: unknown): asserts source is Record<string, string | undefined> {
-    if (source === null || typeof source !== "object" || Array.isArray(source))
+    if (source === null || typeof source !== "object" || Array.isArray(source)) {
         throw new TypeError("@shubhajit-paul-web/envguard: source must be an object.");
+    }
+
     for (const key of Object.keys(source)) {
         const value = (source as Record<string, string | undefined>)[key];
-        if (value !== undefined && typeof value !== "string")
+        if (value !== undefined && typeof value !== "string") {
             throw new TypeError(`@shubhajit-paul-web/envguard: source value for ${key} must be a string or undefined.`);
+        }
     }
 }
 
+// Apply constraints after parsing so comparisons use the correct runtime type
 function checkConstraints(
     entry: NormalizedEntry["schema"],
     value: string | number | boolean,
@@ -115,25 +138,35 @@ function checkConstraints(
     switch (entry.type) {
         case "string": {
             const stringValue = value as string;
-            if (entry.minLength !== undefined && stringValue.length < entry.minLength)
+            if (entry.minLength !== undefined && stringValue.length < entry.minLength) {
                 return { code: "TOO_SHORT", message: `Expected at least ${entry.minLength} characters.` };
-            if (entry.maxLength !== undefined && stringValue.length > entry.maxLength)
+            }
+
+            if (entry.maxLength !== undefined && stringValue.length > entry.maxLength) {
                 return { code: "TOO_LONG", message: `Expected at most ${entry.maxLength} characters.` };
+            }
+
             if (entry.pattern) {
                 entry.pattern.lastIndex = 0;
                 const matched = entry.pattern.test(stringValue);
                 entry.pattern.lastIndex = 0;
-                if (!matched)
+                if (!matched) {
                     return { code: "PATTERN_MISMATCH", message: "Value does not match the required pattern." };
+                }
             }
+
             return undefined;
         }
         case "number": {
             const numberValue = value as number;
-            if (entry.min !== undefined && numberValue < entry.min)
+            if (entry.min !== undefined && numberValue < entry.min) {
                 return { code: "OUT_OF_RANGE", message: `Expected a value greater than or equal to ${entry.min}.` };
-            if (entry.max !== undefined && numberValue > entry.max)
+            }
+
+            if (entry.max !== undefined && numberValue > entry.max) {
                 return { code: "OUT_OF_RANGE", message: `Expected a value less than or equal to ${entry.max}.` };
+            }
+
             return undefined;
         }
         default:
